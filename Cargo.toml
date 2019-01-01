@@ -1,0 +1,6 @@
+[package]
+name = "qre"
+version = "0.1.0"
+authors = ["Gordon Stewart <gstew5@gmail.com>"]
+
+[dependencies]
