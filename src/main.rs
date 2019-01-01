@@ -32,7 +32,7 @@ fn epsilon<D>(q: &QRE<D>) -> Vec<f64> {
         Split{f, g, op} => {
             let mut acc = vec![];
             for x in &epsilon(&*f)[..] {
-                for y in &epsilon(&*f)[..] {
+                for y in &epsilon(&*g)[..] {
                     acc.push(op(*x, *y))
                 }
             };
@@ -49,7 +49,7 @@ fn epsilon<D>(q: &QRE<D>) -> Vec<f64> {
         Combine{f, g, op} => {
             let mut acc = vec![];
             for x in &epsilon(&*f)[..] {
-                for y in &epsilon(&*f)[..] {
+                for y in &epsilon(&*g)[..] {
                     acc.push(op(*x, *y))
                 }
             };
@@ -130,16 +130,99 @@ impl <D> Solve<D> where D: Clone {
         };
         if cnew.len() == 1 { Ok(cnew[0]) }
         else {
+            println!("err: {:?}", cnew);
             Err("undefined".to_string())
         }
     }
 }
 
-fn true_f64(x: &f64) -> bool { true }
+fn true_f64(_x: &f64) -> bool { true }
 fn id_f64(x: &f64) -> f64 { *x }
+fn zero_f64(_x: &f64) -> f64 { 0.0 }
+fn one_f64(_x: &f64) -> f64 { 1.0 }
 fn sum_f64(x: f64, y: f64) -> f64 { x + y }
+fn div_f64(x: f64, y: f64) -> f64 { x / y }
+fn min_f64(x: f64, y: f64) -> f64 { x.min(y) }
+fn max_f64(x: f64, y: f64) -> f64 { x.max(y) }
+fn pi2(x: f64, y: f64) -> f64 { y }
+fn avg(x: f64, y: f64) -> f64 { (x + y) / 2.0 }
+
+fn example14() {
+    let f = Sat{phi: true_f64, op: id_f64};
+    let h1 = Split{
+        f: Box::new(f.clone()),
+        g: Box::new(f.clone()),
+        op: max_f64
+    };
+    let h2 = Split{
+        f: Box::new(f.clone()),
+        g: Box::new(f.clone()),
+        op: min_f64
+    };
+    let gbody = Sat{phi: true_f64, op: zero_f64};
+    let g = Iter{
+        init: Box::new(Eps{c: 0.0}),
+        body: Box::new(gbody),
+        op: pi2
+    };
+    let k1 = Split{
+        f: Box::new(g.clone()),
+        g: Box::new(h1.clone()),
+        op: pi2
+    };
+    let k2 = Split{
+        f: Box::new(g),
+        g: Box::new(h2),
+        op: pi2
+    };
+    let r = Combine{
+        f: Box::new(k1),
+        g: Box::new(k2),
+        op: avg
+    };
+    let mut s = Solve::new(r);
+    s.update(5.0);
+    s.update(4.0);    
+    s.update(3.0);
+    s.update(2.0);    
+    s.update(1.0);    
+    println!("{:?}", s.output())
+}
+
+fn running_avg() {
+    let zero = Sat{phi: true_f64, op: zero_f64};
+    let f = Sat{phi: true_f64, op: id_f64};
+    let g = Sat{phi: true_f64, op: one_f64};
+    let sum = Iter{
+        init: Box::new(zero.clone()),
+        body: Box::new(f),
+        op: sum_f64
+    };
+    let len = Iter{
+        init: Box::new(zero.clone()),
+        body: Box::new(g),
+        op: sum_f64
+    };
+    let avg = Combine{
+        f: Box::new(sum),
+        g: Box::new(len),
+        op: div_f64
+    };
+    let mut s = Solve::new(avg);
+
+    for x in 0..101 {
+        s.update(x as f64);
+    }
+    println!("{:?}", s.output())            
+}
 
 fn main() {
+    //Example 14 from https://www.cis.upenn.edu/~alur/KimFest17.pdf
+    example14();
+
+    //Compute a running average of the numbers from 0 to 100
+    running_avg();
+    
     let f = Sat{phi: true_f64, op: id_f64};
     let r = Iter{init: Box::new(f.clone()),
                  body: Box::new(f),
