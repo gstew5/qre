@@ -108,11 +108,15 @@ fn deriv<D>(q: QRE<D>, d: &D) -> Vec<QRE<D>> where D: Clone {
 
 struct Solve<D> {
     pub state: Vec<QRE<D>>,
+    max_workingset: u64,
 }
 
 impl <D> Solve<D> where D: Clone {
     pub fn new(q: QRE<D>) -> Self {
-        Self {state: vec![q]}
+        Self {
+            state: vec![q],
+            max_workingset: 0
+        }
     }
 
     pub fn update(&mut self, d: D) -> () {
@@ -120,7 +124,11 @@ impl <D> Solve<D> where D: Clone {
         for q in &self.state[..] {
             vnew.append(&mut deriv(q.clone(), &d))
         };
-        self.state = vnew
+        let len = vnew.len() as u64;
+        self.state = vnew;
+        if len > self.max_workingset {
+            self.max_workingset = len
+        }
     }
 
     pub fn output(&self) -> Result<f64, String> {
@@ -128,9 +136,11 @@ impl <D> Solve<D> where D: Clone {
         for q in &self.state[..] {
             cnew.append(&mut epsilon(&q.clone()))
         };
-        if cnew.len() == 1 { Ok(cnew[0]) }
+        if cnew.len() == 1 {
+            println!("max_workingset = {}", self.max_workingset);
+            Ok(cnew[0])
+        }
         else {
-            println!("err: {:?}", cnew);
             Err("undefined".to_string())
         }
     }
