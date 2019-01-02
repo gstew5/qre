@@ -7,7 +7,7 @@ use std::time::{Instant};
 enum QRE<D> {
     Bot,
     Eps{c: f64},
-    Sat{phi: fn(&D) -> bool, op: fn(&D) -> f64},
+    Sat{phi: fn(&D) -> bool, op: fn(&D) -> f64}, //FIXME: phi should be a closure
     Choice{v: Vec<QRE<D>>},
     Split{f: Box<QRE<D>>, g: Box<QRE<D>>, op: fn(f64,f64) -> f64},
     Iter{init: Box<QRE<D>>, body: Box<QRE<D>>, op: fn(f64,f64) -> f64},
@@ -138,7 +138,7 @@ impl <D> Solve<D> where D: Clone {
 
 fn true_f64(_x: &f64) -> bool { true }
 fn id_f64(x: &f64) -> f64 { *x }
-fn zero_f64(_x: &f64) -> f64 { 0.0 }
+fn zero<D>(_x: &D) -> f64 { 0.0 }
 fn one_f64(_x: &f64) -> f64 { 1.0 }
 fn sum_f64(x: f64, y: f64) -> f64 { x + y }
 fn div_f64(x: f64, y: f64) -> f64 { x / y }
@@ -159,7 +159,7 @@ fn example14() {
         g: Box::new(f.clone()),
         op: min_f64
     };
-    let gbody = Sat{phi: true_f64, op: zero_f64};
+    let gbody = Sat{phi: true_f64, op: zero};
     let g = Iter{
         init: Box::new(Eps{c: 0.0}),
         body: Box::new(gbody),
@@ -190,7 +190,7 @@ fn example14() {
 }
 
 fn running_avg() {
-    let zero = Sat{phi: true_f64, op: zero_f64};
+    let zero = Sat{phi: true_f64, op: zero};
     let f = Sat{phi: true_f64, op: id_f64};
     let g = Sat{phi: true_f64, op: one_f64};
     let sum = Iter{
@@ -216,12 +216,53 @@ fn running_avg() {
     println!("{:?}", s.output())            
 }
 
+#[derive(Clone)]
+struct Record {
+    name: String,
+    amount: f64
+}
+
+fn match_pred(r: &Record) -> bool { r.name == "Gordon".to_string() }
+fn notmatch_pred(r: &Record) -> bool { r.name != "Gordon".to_string() }
+fn proj_amount(r: &Record) -> f64 { r.amount }
+
+fn aggregate() {
+    let f =
+        Choice{
+            v: vec![Sat{phi: match_pred, op: proj_amount},
+                    Sat{phi: notmatch_pred, op: zero}]
+        };
+    let agg_gordon = Iter{
+        init: Box::new(f.clone()),
+        body: Box::new(f),
+        op: sum_f64
+    };
+    let mut s = Solve::new(agg_gordon);
+
+    for x in 0..10 {
+        if x % 2 == 0 {
+            s.update(Record{
+                name: "NotGordon".to_string(),
+                amount: 3.0
+            })
+        } else { 
+            s.update(Record{
+                name: "Gordon".to_string(),
+                amount: 10.0
+            })
+        }
+    }
+    println!("{:?}", s.output())
+}
+
 fn main() {
     //Example 14 from https://www.cis.upenn.edu/~alur/KimFest17.pdf
     example14();
 
     //Compute a running average of the numbers from 0 to 100
     running_avg();
+
+    aggregate();
     
     let f = Sat{phi: true_f64, op: id_f64};
     let r = Iter{init: Box::new(f.clone()),
