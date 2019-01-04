@@ -4,23 +4,23 @@ use std::sync::Arc;
 use std::time::{Instant};
 
 #[derive(Clone)]
-enum QRE<D> {
+enum QRE<D,C> {
     Bot,
-    Eps{c: f64},
-    Sat{phi: fn(&D) -> bool, op: fn(&D) -> f64}, //FIXME: phi should be a closure
-    Choice{v: Vec<QRE<D>>},
-    Split{f: Box<QRE<D>>, g: Box<QRE<D>>, op: fn(f64,f64) -> f64},
-    Iter{init: Box<QRE<D>>, body: Box<QRE<D>>, op: fn(f64,f64) -> f64},
-    App{f: Box<QRE<D>>, op: Arc<Fn(f64) -> f64>},
-    Combine{f: Box<QRE<D>>, g: Box<QRE<D>>, op: fn(f64,f64) -> f64},    
+    Eps{c: C},
+    Sat{phi: fn(&D) -> bool, op: fn(&D) -> C}, 
+    Choice{v: Vec<QRE<D,C>>},
+    Split{f: Box<QRE<D,C>>, g: Box<QRE<D,C>>, op: fn(C,C) -> C},
+    Iter{init: Box<QRE<D,C>>, body: Box<QRE<D,C>>, op: fn(C,C) -> C},
+    App{f: Box<QRE<D,C>>, op: Arc<Fn(C) -> C>},
+    Combine{f: Box<QRE<D,C>>, g: Box<QRE<D,C>>, op: fn(C,C) -> C},    
 }
 
 use self::QRE::*;
 
-fn epsilon<D>(q: &QRE<D>) -> Vec<f64> {
+fn epsilon<D,C>(q: &QRE<D,C>) -> Vec<C> where C: Clone {
     match q {
         Bot => vec![],
-        Eps{c} => vec![*c],
+        Eps{c} => vec![c.clone()],
         Sat{phi, op} => vec![],
         Choice{v} => {
             let mut vnew = Vec::new();
@@ -33,7 +33,7 @@ fn epsilon<D>(q: &QRE<D>) -> Vec<f64> {
             let mut acc = vec![];
             for x in &epsilon(&*f)[..] {
                 for y in &epsilon(&*g)[..] {
-                    acc.push(op(*x, *y))
+                    acc.push(op(x.clone(), y.clone()))
                 }
             };
             acc
@@ -42,7 +42,7 @@ fn epsilon<D>(q: &QRE<D>) -> Vec<f64> {
         App{f, op} => {
             let mut acc = vec![];
             for x in &epsilon(&*f)[..] {
-                acc.push(op(*x))
+                acc.push(op(x.clone()))
             };
             acc
         },
@@ -50,7 +50,7 @@ fn epsilon<D>(q: &QRE<D>) -> Vec<f64> {
             let mut acc = vec![];
             for x in &epsilon(&*f)[..] {
                 for y in &epsilon(&*g)[..] {
-                    acc.push(op(*x, *y))
+                    acc.push(op(x.clone(), y.clone()))
                 }
             };
             acc
@@ -58,7 +58,7 @@ fn epsilon<D>(q: &QRE<D>) -> Vec<f64> {
     }
 }
 
-fn deriv<D>(q: QRE<D>, d: &D) -> Vec<QRE<D>> where D: Clone {
+fn deriv<D,C: 'static>(q: QRE<D,C>, d: &D) -> Vec<QRE<D,C>> where D: Clone, C: Clone {
     match q {
         Bot => vec![Bot],
         Eps{..} => vec![Bot],
@@ -75,7 +75,7 @@ fn deriv<D>(q: QRE<D>, d: &D) -> Vec<QRE<D>> where D: Clone {
             let mut vnew = Vec::new();
             for a in epsilon(&*f) {
                 vnew.push(App{f: Box::new(Choice{v: deriv((*g).clone(), d)}),
-                              op: Arc::new(move |x| op(a, x))})
+                              op: Arc::new(move |x| op(a.clone(), x))})
             };
             vnew.push(
                 Split{f: Box::new(Choice{v: deriv(*f, d)}),
@@ -88,7 +88,7 @@ fn deriv<D>(q: QRE<D>, d: &D) -> Vec<QRE<D>> where D: Clone {
             for b in epsilon(&*init) {
                 vnew.push(Iter{
                     init: Box::new(App{f: Box::new(Choice{v: deriv((*body).clone(), d)}),
-                                       op: Arc::new(move |x| op(b, x))}),
+                                       op: Arc::new(move |x| op(b.clone(), x))}),
                     body: body.clone(),
                     op: op})
             };
@@ -106,13 +106,13 @@ fn deriv<D>(q: QRE<D>, d: &D) -> Vec<QRE<D>> where D: Clone {
     }
 }
 
-struct Solve<D> {
-    pub state: Vec<QRE<D>>,
+struct Solve<D,C: 'static> {
+    pub state: Vec<QRE<D,C>>,
     max_workingset: u64,
 }
 
-impl <D> Solve<D> where D: Clone {
-    pub fn new(q: QRE<D>) -> Self {
+impl <D,C> Solve<D,C> where D: Clone, C: Clone {
+    pub fn new(q: QRE<D,C>) -> Self {
         Self {
             state: vec![q],
             max_workingset: 0
@@ -131,14 +131,14 @@ impl <D> Solve<D> where D: Clone {
         }
     }
 
-    pub fn output(&self) -> Result<f64, String> {
+    pub fn output(&self) -> Result<C, String> {
         let mut cnew = Vec::new();
         for q in &self.state[..] {
             cnew.append(&mut epsilon(&q.clone()))
         };
         if cnew.len() == 1 {
             println!("max_workingset = {}", self.max_workingset);
-            Ok(cnew[0])
+            Ok(cnew[0].clone())
         }
         else {
             Err("undefined".to_string())
