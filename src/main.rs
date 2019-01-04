@@ -292,6 +292,6 @@ fn main() {
     let now2 = Instant::now();    
     for x in 0..1001 { t = t + (x as f64) }
     println!("{:?}", t);
-    let elapsed2 = now.elapsed();
+    let elapsed2 = now2.elapsed();
     println!("time = {}s, {}ms", elapsed2.as_secs(), elapsed2.subsec_millis());
 }
