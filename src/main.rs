@@ -1,7 +1,16 @@
-use std::iter::Iterator;
+use std::fmt::Debug;
 use std::clone::Clone;
 use std::sync::Arc;
 use std::time::{Instant};
+
+trait SplitExp<D,C> {
+    type A;
+    type B;
+
+    fn f() -> QRE<D,Self::A>;
+    fn g() -> QRE<D,Self::B>;
+    fn op(Self::A, Self::B) -> C;
+}
 
 #[derive(Clone)]
 enum QRE<D,C> {
@@ -10,6 +19,7 @@ enum QRE<D,C> {
     Sat{phi: fn(&D) -> bool, op: fn(&D) -> C}, 
     Choice{v: Vec<QRE<D,C>>},
     Split{f: Box<QRE<D,C>>, g: Box<QRE<D,C>>, op: fn(C,C) -> C},
+    //Split(Box<SplitExp<D,C>>),
     Iter{init: Box<QRE<D,C>>, body: Box<QRE<D,C>>, op: fn(C,C) -> C},
     App{f: Box<QRE<D,C>>, op: Arc<Fn(C) -> C>},
     Combine{f: Box<QRE<D,C>>, g: Box<QRE<D,C>>, op: fn(C,C) -> C},    
@@ -21,7 +31,7 @@ fn epsilon<D,C>(q: &QRE<D,C>) -> Vec<C> where C: Clone {
     match q {
         Bot => vec![],
         Eps{c} => vec![c.clone()],
-        Sat{phi, op} => vec![],
+        Sat{..} => vec![],
         Choice{v} => {
             let mut vnew = Vec::new();
             for q in v {
@@ -38,7 +48,7 @@ fn epsilon<D,C>(q: &QRE<D,C>) -> Vec<C> where C: Clone {
             };
             acc
         },
-        Iter{init, body, op} => epsilon(&*init),
+        Iter{init, ..} => epsilon(&*init),
         App{f, op} => {
             let mut acc = vec![];
             for x in &epsilon(&*f)[..] {
@@ -63,7 +73,7 @@ fn deriv<D,C: 'static>(q: QRE<D,C>, d: &D) -> Vec<QRE<D,C>> where D: Clone, C: C
         Bot => vec![Bot],
         Eps{..} => vec![Bot],
         Sat{phi, op} if phi(d) => vec![Eps{c: op(d)}],
-        Sat{phi, ..} => vec![Bot],        
+        Sat{..} => vec![Bot],        
         Choice{v} => {
             let mut vnew = Vec::new();
             for q in v {
@@ -111,7 +121,7 @@ struct Solve<D,C: 'static> {
     max_workingset: u64,
 }
 
-impl <D,C> Solve<D,C> where D: Clone, C: Clone {
+impl <D,C> Solve<D,C> where D: Clone, C: Clone + Debug {
     pub fn new(q: QRE<D,C>) -> Self {
         Self {
             state: vec![q],
@@ -141,10 +151,93 @@ impl <D,C> Solve<D,C> where D: Clone, C: Clone {
             Ok(cnew[0].clone())
         }
         else {
+            eprintln!("epsilons = {:?}", cnew);
             Err("undefined".to_string())
         }
     }
 }
+
+#[derive(Clone,Debug)]
+enum PInstr {
+    Var(u32),
+    Label,
+    Store(u32),
+    Push(u32),
+    Pop,
+    PVec(Vec<PInstr>)
+}
+
+fn is_push(i: &PInstr) -> bool {
+    match i {
+        PInstr::Push(_) => true,
+        _ => false
+    }
+}
+
+fn is_pop(i: &PInstr) -> bool {
+    match i {
+        PInstr::Pop => true,
+        _ => false
+    }
+}
+
+fn nop(_i: PInstr, _j: PInstr) -> PInstr { PInstr::PVec(vec![]) }
+
+fn id<A>(a: &A) -> A where A: Clone { a.clone() }
+
+fn true_pred<A>(_: &A) -> bool { true }
+
+fn concat(i: PInstr, j: PInstr) -> PInstr {
+    match i { 
+        PInstr::PVec(mut v) => {
+            match j {
+                PInstr::PVec(mut w) => { v.append(&mut w); PInstr::PVec(v)},
+                _ => { v.push(j); PInstr::PVec(v) }
+            }
+        },
+        _ => {
+            match j {
+                PInstr::PVec(mut w) => {
+                    let mut v = vec![i];
+                    v.append(&mut w);
+                    PInstr::PVec(v)
+                },
+                _ => PInstr::PVec(vec![i, j])
+            }
+        }
+    }
+}
+
+fn example1() {
+    let f = Sat{phi: is_push, op: id};
+    let g = Sat{phi: is_pop, op: id};    
+    let h1 = Split{
+        f: Box::new(f.clone()),
+        g: Box::new(g.clone()),
+        op: nop};
+    let h2 = Sat{phi: true_pred, op: id};
+    let h = Choice{v: vec![h1, h2]};
+    let peephole = Iter{
+        init: Box::new(Eps{c: PInstr::PVec(vec![])}),
+        body: Box::new(h),
+        op: concat
+    };
+    
+    let mut s = Solve::new(peephole);
+    s.update(PInstr::Push(3));
+    println!("{:?}", s.output());
+    s.update(PInstr::Pop);    
+    println!("{:?}", s.output());
+    s.update(PInstr::Push(4));
+    println!("{:?}", s.output());
+    s.update(PInstr::Pop);    
+    println!("{:?}", s.output());
+    s.update(PInstr::Push(5));
+    println!("{:?}", s.output());
+    s.update(PInstr::Pop);    
+    println!("{:?}", s.output())
+}
+
 
 fn true_f64(_x: &f64) -> bool { true }
 fn id_f64(x: &f64) -> f64 { *x }
@@ -154,7 +247,7 @@ fn sum_f64(x: f64, y: f64) -> f64 { x + y }
 fn div_f64(x: f64, y: f64) -> f64 { x / y }
 fn min_f64(x: f64, y: f64) -> f64 { x.min(y) }
 fn max_f64(x: f64, y: f64) -> f64 { x.max(y) }
-fn pi2(x: f64, y: f64) -> f64 { y }
+fn pi2(_x: f64, y: f64) -> f64 { y }
 fn avg(x: f64, y: f64) -> f64 { (x + y) / 2.0 }
 
 fn example14() {
@@ -266,6 +359,8 @@ fn aggregate() {
 }
 
 fn main() {
+    example1();
+    
     //Example 14 from https://www.cis.upenn.edu/~alur/KimFest17.pdf
     example14();
 
